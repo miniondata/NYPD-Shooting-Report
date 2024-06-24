@@ -1,298 +1,242 @@
 ---
-title: "Final Project"
+title: "First Project"
 author: "My Le"
-date: "2024-06-17"
-output: github_document
+date: "2024-06-15"
+output:
+  pdf_document: default
+  html_document: default
 ---
-## Background
 
-The data examines trends during the COVID-19 pandemic from January 22, 2020, to March 9, 2023, globally and specifically in the US.
-
-The first part of this analysis emphasizes the critical role of economic stability and healthcare investment in mitigating the global impact of COVID-19. It stresses the need for comprehensive strategies that bolster healthcare system resilience and promote broader economic well-being to effectively combat the pandemic. By addressing these interconnected aspects, countries can better prepare to navigate and mitigate the challenges posed by COVID-19, ensuring both health security and economic resilience for their populations.
-
-The second part focuses on trends observed within the US during the pandemic. It highlights a peak in cases in 2022, which coincided with eased quarantine measures and increased social activity. This underscores the importance of maintaining social distancing measures to control transmission rates. Additionally, the analysis identifies a correlation between cases and deaths in the US, with deaths increasing over time at a slower rate compared to cases. This trend suggests that factors such as vaccination efforts and improved healthcare responses are influencing outcomes. These insights guide strategies to strengthen public health measures, enhance healthcare capacity, and mitigate both health and economic impacts of COVID-19 in the US context.
-
-## COVID-19 Global Cases Analysis
-
-```{r setup, message = FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-library(tidyverse)
-library(lubridate)
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE)
+library(readr)
 library(knitr)
 library(dplyr)
+library(lubridate)
 library(tidyr)
 library(ggplot2)
 ```
 
-```{r data1, message = FALSE}
+## 1. Shooting by Timeframes
+```{r nypd, message = FALSE}
 # Retrieve the data
-url_in <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
-file_names <- c("time_series_covid19_confirmed_US.csv",  "time_series_covid19_confirmed_global.csv", "time_series_covid19_deaths_US.csv",  "time_series_covid19_deaths_global.csv")
-urls <- str_c(url_in,file_names)
+nypd <- read_csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD")
 
-# Define the data frames
-global_cases <- read_csv(urls[2])
-global_deaths <- read_csv(urls[4])
-US_cases <- read_csv(urls[1])
-US_deaths <- read_csv(urls[3])
+# Pick the columns to remove
+columns_to_remove <- c(1,5,8,9,17:21)
 
-# Tidy up Global cases
-global_cases <- global_cases %>%
-   rename(State = 'Province/State', Country = 'Country/Region') %>%  # Rename columns
-   pivot_longer(cols = -c(State, Country, Lat, Long),
-                 names_to = "date",
-                 values_to = "cases") %>%
-    select(-c(Lat, Long))  # Remove Lat and Long as not needed after the pivot
+# Remove the unncessary columns
+nypd <- nypd[, -columns_to_remove]
 
-# Tidy up Global deaths
-global_deaths <- global_deaths %>%
-    rename(State = 'Province/State', Country = 'Country/Region') %>%  # Rename columns
-   pivot_longer(cols = -c(State, Country, Lat, Long),
-                 names_to = "date",
-                 values_to = "deaths") %>%
-    select(-c(Lat, Long))  # Remove Lat and Long as not needed after the pivot
+# Create a new data frame to analyze time
+nypd_time <- nypd[, "OCCUR_TIME"]
 
-# Join Global cases & deaths
-global <- global_cases %>%
-    full_join(global_deaths) %>%
-    mutate(date = mdy(date))
+# Define the time frames
+nypd_time <- nypd_time %>%
+  mutate(TIME_FRAME = case_when(
+    OCCUR_TIME >= hms::as_hms("00:00:00") & OCCUR_TIME <= hms::as_hms("06:00:00") ~ "Dawn (0AM - 6AM)",
+    OCCUR_TIME >= hms::as_hms("06:01:00") & OCCUR_TIME <= hms::as_hms("12:00:00") ~ "Morning (6AM - 12PM)",
+    OCCUR_TIME >= hms::as_hms("12:01:00") & OCCUR_TIME <= hms::as_hms("18:00:00") ~ "Afternoon (12PM - 6PM)",
+    OCCUR_TIME >= hms::as_hms("18:01:00") & OCCUR_TIME <= hms::as_hms("23:59:59") ~ "Evening (6PM - 12AM)"
+  ))
 
-# Group by "Country" and summarize total cases, deaths, deaths over cases
-summary <- global %>%
-  group_by(Country) %>%
-  summarize(
-    total_cases = sum(cases, na.rm = TRUE),
-    total_deaths = sum(deaths, na.rm = TRUE)
-  ) %>%
-  # Add a new column 'death_rate' expressed as a percentage
-  mutate(death_rate = round((total_deaths / total_cases) * 100, 2),
-         death_rate_str = sprintf("%.2f%%", death_rate))  # Format as percentage string
+# Count the occurrences within each time frame
+cases_by_time <- nypd_time %>%
+  group_by(TIME_FRAME) %>%
+  summarise(REPORTED_CASES = n()) %>%
+  arrange(desc(REPORTED_CASES))
 
-# Sort the summary data frame by death_rate in descending order
-summary_sorted <- summary %>%
-  arrange(desc(death_rate))
+# Calculate the total number of reported cases
+total_cases <- sum(cases_by_time$REPORTED_CASES)
 
-# Select columns for kable output (excluding intermediate columns)
-summary_display <- summary_sorted %>%
-  select(Country, total_cases, total_deaths, death_rate_str)
+# Calculate the percentage for each time frame
+cases_by_time <- cases_by_time %>%
+  mutate(PERCENTAGE = (REPORTED_CASES / total_cases) * 100)
 
-# Print the data
-kable(summary_display, align = 'l')
+# Round the percentages to 2 decimal places
+cases_by_time$PERCENTAGE <- round(cases_by_time$PERCENTAGE, 2)
+
+# Pie chart
+pie(cases_by_time$PERCENTAGE, labels = cases_by_time$TIME_FRAME, main = "Percentage of Reported Cases by Time Frame")
 ```
 
-**Outlier Identification:**
+### Analysis of Shooting Timeframes
 
-Upon initial examination, death-to-case ratios exceeding 100% are uncommon. North Korea notably stands out as an outlier in this dataset, which may indicate potential data inaccuracies or significant underreporting of cases. This discrepancy could be attributed to challenges in identifying cases due to limited healthcare infrastructure or citizens' awareness of their health status and symptoms. Therefore, it is advisable to exclude North Korea from the dataset at this time.
+**Observations**
 
-```{r data2, message = FALSE}
-# Filter out data for "Korea, North"
-filtered_data <- summary_display %>%
-  filter(Country != "Korea, North")
+The data suggests that a higher percentage of police shootings occur during dawn (0 AM - 6 AM) and evening (6 PM - 12 AM) hours. This coincides with periods of lower visibility, potentially leading to:
 
-# Convert death_rate_str back to numeric for sorting
-filtered_data$death_rate_numeric <- as.numeric(gsub("%", "", filtered_data$death_rate_str))
+- Reduced public presence: Fewer bystanders might be present to witness or intervene in an escalating situation.
+- Delayed assistance: Victims or bystanders might be less likely to seek or receive immediate help due to reduced visibility or fewer people around.
 
-# Sort the data by death_rate_numeric in descending order
-top10_highest <- filtered_data %>%
-  arrange(desc(death_rate_numeric)) %>%
-  head(10)  # Select top 10 countries with highest death rates
+**Actionable Insights**
 
-# Create a bar plot for top 10 highest death rates
-ggplot(top10_highest, aes(x = reorder(Country, death_rate_numeric), y = death_rate_numeric)) +
-  geom_bar(stat = "identity", fill = "#1f78b4") +
-  labs(
-    title = "Top 10 Highest Death Rates (Excluding Korea, North)",
-    x = "Country",
-    y = "Death Rate (%)"
-  ) +
+Based on this observation, law enforcement can consider the following actions:
+
+- Enhanced Nightly Patrols: Strategic deployment of additional patrols in high-risk areas during nighttime hours might deter crime and increase officer presence as a deterrent.
+- Improved Nighttime Visibility: Investigate the feasibility of improved street lighting or partnerships with local businesses to enhance nighttime visibility in critical areas.
+- Community Outreach Programs: Strengthening relationships with community members, particularly during evenings, can foster trust and encourage reporting of suspicious activity.
+- De-escalation Training with Nighttime Considerations: Tailoring de-escalation training programs to address specific challenges and potential visibility limitations encountered during nighttime scenarios.
+
+**Drawbacks and Considerations**
+
+- Data Limitations: This analysis is based on a limited time frame. A longer period and access to additional data (e.g., call types, locations, demographics) could provide a more nuanced understanding.
+- Reporting Bias: The data might be skewed if reporting rates differ across time frames. Investigate if there are any known reporting trends based on time of day.
+- Underlying Factors: While reduced visibility might play a role, it's likely not the sole factor. Other potential factors like the nature of calls for service or suspect demographics might also contribute.
+
+## 2. Shooting by Season
+```{r nypd1, message = FALSE}
+# Convert OCCUR_DATE to Date format with explicit "MM/DD/YYYY" format
+nypd$OCCUR_DATE <- as.Date(nypd$OCCUR_DATE, format = "%m/%d/%Y")
+
+# Extract month from OCCUR_DATE and aggregate by month and TIME_FRAME
+nypd_date <- nypd_time %>%
+  mutate(MONTH = format(nypd$OCCUR_DATE, "%b")) %>%
+  group_by(MONTH, TIME_FRAME) %>%
+  summarise(REPORTED_SHOOTINGS = n())
+
+# Pivot the data to have TIME_FRAME as columns and MONTH as rows
+nypd_date <- nypd_date %>%
+  pivot_wider(names_from = TIME_FRAME, values_from = REPORTED_SHOOTINGS, values_fill = 0) %>%
+  mutate(MONTH = factor(MONTH, levels = month.abb)) %>%
+  arrange(MONTH)
+
+# Arrange columns by Dawn, Morning, Afternoon, and Evening
+nypd_date <- nypd_date %>%
+  select(MONTH, "Dawn (0AM - 6AM)", "Morning (6AM - 12PM)", "Afternoon (12PM - 6PM)", "Evening (6PM - 12AM)")
+
+# Reshape data for line plot
+nypd_date_long <- pivot_longer(nypd_date, cols = -MONTH, names_to = "TIME_FRAME", values_to = "REPORTED_SHOOTINGS")
+
+# Line plot
+ggplot(nypd_date_long, aes(x = MONTH, y = REPORTED_SHOOTINGS, color = TIME_FRAME, group = TIME_FRAME)) +
+  geom_line() +
+  labs(title = "Monthly Trends of Shootings by Time Frame",
+       x = "Month",
+       y = "Number of Shootings",
+       color = "Time Frame") +
+  scale_x_discrete(labels = month.abb) +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  scale_y_continuous(labels = scales::comma_format()) +
-  coord_flip()  # Flip coordinates for horizontal bars
+  theme(legend.position = "right")
 ```
 
-### Analysis
 
-**Observations:**
+### Analysis of Shooting by Season
 
-- High Death-to-Case Ratio Countries: The countries with the highest death-to-case ratios predominantly fall within the category of developing nations. These regions may experience higher mortality rates due to limited access to healthcare, lower awareness of COVID-19 prevention measures, or communal living conditions that facilitate virus transmission.
-  
-- Low Death-to-Case Ratio Countries: Conversely, countries with the lowest death-to-case ratios are often located in Oceania (Australia, New Zealand, Nauru, Vanuatu) or isolated geographical locations such as mountains (Bhutan) or islands (Singapore, Iceland, Marshall Islands). Factors contributing to their lower ratios may include smaller populations, geographic isolation limiting travel and virus spread, and climatic conditions potentially less favorable for virus transmission.
-  
-**Actionable insights:**
+**Observations**
 
-- Promoting Distancing Measures: Countries can learn from those with lower ratios by implementing effective distancing measures and possibly relocating households to enhance separation.
+The data suggests a potential link between shooting cases in New York and summer months (June-August). Here are some possible explanations for this observation:
 
-- Economic Support for Healthcare: Investing in healthcare infrastructure and emergency healthcare access can bolster a country’s ability to manage and respond to health crises, thereby improving overall resilience against the virus. Enhanced economic support can provide resources for expanding healthcare facilities, acquiring medical supplies, and ensuring healthcare workers are adequately supported.
+- Increased Activity: Warmer weather might lead to more people being outdoors, potentially increasing opportunities for conflict and gun violence.
+- Behavioral Changes: Hotter weather might contribute to heightened emotional states, potentially leading to more volatile situations.
+- Social Gatherings: Increased social gatherings during summer might create environments where tensions can easily escalate, particularly if firearms are present.
 
-- Healthcare Education and Campaigns: Prioritizing healthcare education and awareness campaigns can empower citizens to adopt preventive measures and strengthen public health responses.
+**Actionable Insights**
 
-- General Economic Enhancement: Strengthening the overall economy can indirectly contribute to better COVID-19 outcomes. Economic stability enables governments to allocate more funds towards healthcare, implement social support programs, and invest in public health education. A robust economy can also support businesses and individuals, reducing economic disparities that may exacerbate healthcare inequalities.
-  
-**Drawbacks:**
+Based on this observation, various entities can consider the following actions:
 
-- Assumptions and Data Gaps: Some assumptions, such as the impact of population density or healthcare system capabilities, require further validation. Variations in reporting practices across countries can also lead to discrepancies in data accuracy.
-  
-- Need for Further Investigation: More comprehensive investigations into factors like population density, healthcare accessibility, and national responses to COVID-19 are necessary to provide a clearer understanding of the observed trends and variations in death-to-case ratios.
-  
-- Underreporting Concerns: Acknowledgment that some countries may not fully report COVID-19 cases and deaths, which can skew comparative analyses and limit actionable insights.
+- Community Outreach Programs: Strengthening community engagement initiatives during summer months, especially in high-risk areas, can foster peaceful conflict resolution and reduce tensions.
+- Public Awareness Campaigns: Launching public awareness campaigns during summer months could focus on de-escalation techniques, responsible gun ownership, and the importance of seeking help during conflicts.
+- Increased Patrols in High-Risk Areas: Strategic deployment of additional police patrols or community safety teams in areas with historically higher shooting rates could deter gun violence during summer months.
 
+**Drawbacks and Considerations**
 
-## COVID-19 US Cases Analysis
-```{r data3, message = FALSE}
+- Data Limitations: This analysis is based on a limited time frame. A longer period and access to additional data (e.g., location details, demographics, type of shootings) could provide a more nuanced understanding.
+- Reporting Bias: The data might be skewed if reporting rates differ across seasons.
+- Underlying Factors: While summer weather might play a role, it's likely not the sole factor. Other potential factors might contribute like gang activity, access to firearms, or socioeconomic conditions, etc
 
-# Tidy up US cases
-US_cases <- US_cases %>%
-    select(-c(UID, iso2, iso3, code3, FIPS, Admin2, Combined_Key)) %>%  # Remove irrelevant columns
-    rename(State = Province_State, Country = Country_Region) %>%  # Rename columns
-    pivot_longer(cols = -c(State, Country, Lat, Long_),
-                 names_to = "date",
-                 values_to = "cases") %>%
-    select(-c(Lat, Long_))  # Remove Lat and Long_ as not needed after the pivot
+## 3. Model: Likelihood of Cases leading to Deaths
+```{r nypd2, message = FALSE, warning = FALSE}
 
-# Tidy up US deaths
-US_deaths <- US_deaths %>%
-    select(-c(UID, iso2, iso3, code3, FIPS, Admin2, Combined_Key)) %>%  # Remove irrelevant columns
-    rename(State = Province_State, Country = Country_Region) %>%  # Rename columns
-    pivot_longer(cols = -c(State, Country, Lat, Long_, Population),
-                 names_to = "date",
-                 values_to = "deaths") %>%
-    select(-c(Lat, Long_))  # Remove Lat and Long_ as not needed after the pivot
+# Calculate number of cases by borough
+boro_counts <- nypd %>%
+  count(BORO) %>%
+  rename(CASES = n)
 
-# Check for duplicates in US_cases
-duplicates_cases <- US_cases %>%
-    group_by(State, Country, date) %>%
-    filter(n() > 1)
+# Calculate number of murders by borough
+murder_cases <- nypd %>%
+  filter(STATISTICAL_MURDER_FLAG =="TRUE")
+boro_murders <- murder_cases %>%
+  count(BORO) %>%
+  rename(MURDERS = n)
 
-# Check for duplicates in US_deaths
-duplicates_deaths <- US_deaths %>%
-    group_by(State, Country, date) %>%
-    filter(n() > 1)
+# Join data frames by borough
+boro <- boro_counts %>%
+  left_join(boro_murders, by = "BORO")
 
-# Remove duplicates by summarizing cases in US_cases
-US_cases <- US_cases %>%
-    group_by(State, Country, date) %>%
-    summarize(cases = sum(cases, na.rm = TRUE), .groups = 'drop')
+# Rename BORO to BOROUGH
+boro <- boro %>%
+  rename(BOROUGH = BORO)
 
-# Remove duplicates by summarizing deaths and population in US_deaths
-US_deaths <- US_deaths %>%
-    group_by(State, Country, date) %>%
-    summarize(deaths = sum(deaths, na.rm = TRUE), 
-              population = first(Population), .groups = 'drop')
+# Calculate murder rate
+boro <- boro %>%
+  mutate(MURDER_RATE = round((MURDERS / CASES) * 100, 2))
 
-# Join the data frame
-US <- US_cases %>%
-    left_join(US_deaths, by = c("State", "Country", "date"))
+# Sort by murder rate (descending)
+boro <- arrange(boro, desc(MURDER_RATE))
 
-# Convert date column to Date format
-US <- US %>%
-  mutate(date = mdy(date))
+# Round the percentages to 2 decimal places and format with % sign
+boro <- boro %>%
+  mutate(MURDER_RATE = sprintf("%.2f%%", MURDER_RATE))
 
-# Create the plot
-ggplot(data = US, aes(x = date)) +
-  geom_line(aes(y = cases, color = "Cases")) +
-  geom_line(aes(y = deaths * 10, color = "Deaths")) +  # Scale deaths for better visibility
-  labs(title = "COVID-19 Cases and Deaths Progression",
-       x = "Date",
-       y = "Cases",
-       color = "Metric") +
-  scale_color_manual(values = c("blue", "red"), 
-                     labels = c("Cases", "Deaths")) +
-  theme_minimal() +
-  # Add a secondary y-axis for deaths
-  scale_y_continuous(sec.axis = sec_axis(~./10, name = "Deaths", 
-                                         breaks = seq(0, 250000, by = 50000))) +
-  theme(axis.title.y.right = element_text(color = "red"))  # Adjust the color of the secondary y-axis label
-```
-
-### Analysis
-
-**Observations:**
-
-- Peak in Cases in 2022: The graph indicates a peak in the rate of COVID-19 cases in 2022, coinciding with a period when quarantine measures were relaxed and social activities resumed. This suggests that adherence to social distancing measures plays a crucial role in controlling the spread of COVID-19.
-
-- Relationship Between Cases and Deaths: There is a clear correlation between the number of cases and deaths over time. While deaths increased throughout the year, the rate of increase slowed down over time. This trend indicates that the mortality rate relative to the number of cases decreased. Possible contributing factors include increased vaccination coverage, acquired immunity among those previously infected, and improved access to COVID-19 prevention and treatment measures.
-
-**Actionable Insight**
-
-- Importance of Social Distancing: The peak in cases during 2022 underscores the critical role of social distancing measures in preventing the rapid spread of COVID-19. Encouraging continued adherence to these measures during periods of high transmission can help mitigate the impact on public health.
-
-- Vaccination and Preventive Measures: The observed decrease in the mortality rate relative to cases highlights the effectiveness of vaccination campaigns and widespread adoption of preventive measures. Promoting vaccination and ensuring access to healthcare resources remain crucial in managing COVID-19 outcomes.
-
-**Drawbacks**
-
-- Data Limitations: The analysis relies on aggregated data and may not capture localized variations or specific demographic factors influencing COVID-19 transmission and outcomes.
-
-- Causal Inferences: While correlations are observed between cases, deaths, and interventions like social distancing and vaccination, establishing direct causal relationships requires more detailed epidemiological studies.
-
-- Temporal Trends: The slowdown in death rates observed over time may also reflect changes in testing protocols, healthcare capacity, and reporting practices, which can influence the interpretation of trends.
-
-By considering these insights and limitations, stakeholders can better formulate targeted strategies to combat COVID-19 and mitigate its impact on public health.
-
-
-### Data Model
-
-To explore the association between cases and deaths more comprehensively, we will construct a basic linear regression model.
-
-```{r data4, message = FALSE, warning = FALSE}
-
-# Scatter plot to visualize relationship
-ggplot(US, aes(x = cases, y = deaths)) +
-  geom_point() +
-  labs(title = "Relationship Between COVID-19 Cases and Deaths in US",
-       x = "Cases",
-       y = "Deaths")
+# Print results as a table
+kable(boro, align = c('l', 'l', 'l', 'l'))
 
 # Fit linear regression model
-model <- lm(deaths ~ cases, data = US)
+model <- lm(MURDERS ~ CASES, data = boro)
 
-# Print model summary
+# Summarize the model
 summary(model)
 
-# Add regression line to scatter plot
-ggplot(US, aes(x = cases, y = deaths)) +
-  geom_point() +
-  geom_smooth(method = "lm", se = FALSE, color = "blue") +  # Add linear regression line
-  labs(title = "Relationship Between COVID-19 Cases and Deaths",
-       x = "Cases",
-       y = "Deaths")
+# Predict values from the model
+predicted <- predict(model)
+
+# Create a data frame for plotting
+plot_data <- data.frame(BOROUGH = boro$BOROUGH,
+                        CASES = boro$CASES,
+                        MURDERS = boro$MURDERS,
+                        Predicted = predicted)
+
+# Create plot for model
+ggplot(plot_data, aes(x = CASES, y = MURDERS, label = BOROUGH)) +
+  geom_point() +  # Scatter plot of actual data points
+  geom_text(check_overlap = TRUE, vjust = 1.5, size = 2) +  # Add borough labels
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +  # Fitted regression line
+  labs(x = "Number of Cases", y = "Number of Murders",
+       title = "Linear Regression: Cases Leading to Murders") +
+  theme_minimal()
 ```
 
-**Analysis:**
+### Analysis of the Model
 
-- Coefficient of Cases: The coefficient of cases in the linear regression model is  *1.127e-02*. This indicates that for every unit increase in the number of COVID-19 cases, there is an associated increase of 0.01127 units in the number of deaths. In other words, for every 100 more COVID-19 cases, there is 1 more case of deaths.
+**Model Description:**
 
-- P-value: The p-value associated with the coefficient of cases is *< 2.2e-16*. This extremely low p-value suggests that the relationship between cases and deaths is statistically significant. In other words, the observed association between COVID-19 cases and deaths in the dataset is unlikely to be due to random chance.
+This analysis focuses on a simple model derived from the boro data frame. We analyze the relationship between reported shootings and resulting deaths across New York City boroughs.
 
-**Interpretation:**
+**Observations:**
 
-- Positive Relationship: The positive coefficient indicates that as the number of COVID-19 cases increases, there is a corresponding increase in the number of deaths. This aligns with the expected understanding that higher case numbers generally lead to higher mortality rates, depending on various factors including healthcare capacity, demographics, and access to treatment.
+The data suggests a positive correlation between the number of shootings and the number of murders. This implies that as shootings increase, so do fatalities.
 
-- Statistical Significance: The very low p-value indicates strong evidence against the null hypothesis (which typically assumes no relationship between cases and deaths). Therefore, we can confidently conclude that changes in COVID-19 cases are associated with changes in deaths in a statistically significant manner.
+In this context, for every one unit increase in the independent variable (shootings), there's a 0.19 unit increase in the dependent variable (murders).
 
-**Conclusion:**
+Interestingly, Manhattan appears to have a slightly lower murder rate compared to other boroughs. Possible Reasons for Lower Murder Rate in Manhattan:
 
-Based on the regression analysis:
+- Increased Police Presence: Manhattan may have a higher concentration of police officers leading to quicker response times and potentially preventing fatalities during shootings.
+- Socioeconomic Factors: Manhattan has a higher average income compared to other boroughs. Lower crime rates are often associated with higher socioeconomic status.
+- Medical Resources: Manhattan boasts a higher concentration of top-tier hospitals, which could improve survival rates after shootings.
+- Gun Type: The type of firearms used in Manhattan shootings might be less powerful compared to other boroughs.
+- Public Awareness: Manhattan residents might be more aware of personal safety measures or have quicker access to emergency response training.
 
-- The data supports a statistically significant positive relationship between COVID-19 cases and deaths.
+**Actionable Insights:**
 
-- Each incremental increase in COVID-19 cases is associated with a predictable increase in deaths, as indicated by the coefficient.
+Law enforcement agencies in other boroughs can benchmark strategies used in Manhattan to potentially reduce fatalities. This could involve:
 
-These findings underscore the importance of efforts to control and manage COVID-19 transmission to mitigate its impact on mortality rates.
+- Increased Patrols: Deploying additional officers in high-crime areas.
+- Community Policing: Building stronger relationships between police and residents to improve trust and information sharing.
+- De-escalation Training: Equipping officers with better de-escalation tactics to minimize the need to use force.
 
-**Considerations:**
+**Drawbacks and Considerations:**
 
-- Causality: While the statistical analysis shows an association, establishing causality would require additional research and consideration of other contributing factors.
-
-- Data Quality: The accuracy and completeness of the data on COVID-19 cases and deaths are critical for the validity of the regression analysis.
-
-- Temporal and Contextual Factors: The relationship observed may vary over time and across different regions, influenced by factors such as public health interventions, healthcare resources, and population demographics.
-
-By understanding these statistical findings and considering the broader context, stakeholders can make informed decisions to address and mitigate the impact of COVID-19 on public health.
-
-
-
-
-
-
-
+- This is a simple model that only considers the outcome of shootings (death or not). It doesn't account for factors like severity of injuries, type of weapon used, or response time.
+- Correlation doesn't imply causation. While the data shows a positive correlation, it doesn't necessarily mean more shootings cause more murders. Other factors might be influencing both variables.
+- Generalizing from Manhattan may not be straightforward. Manhattan's unique demographics and infrastructure might not be easily replicated in other boroughs.
